@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>손안에 가이드</title>
+    <meta name="theme-color" content="#FFFEFA"/>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://hangeul.pstatic.net">
+    <link rel="stylesheet" href="https://hangeul.pstatic.net/maruburi/maruburi.css">
+    <style>
+        :root {
+            --gemini-blue: #4285F4;
+        }
+        html, body { 
+            touch-action: manipulation; 
+            -webkit-tap-highlight-color: transparent; 
+            height: 100vh;
+            overflow: hidden;
+            background-color: #FFFEFA;
+            font-family: 'MaruBuri', sans-serif;
+        }
+        .full-screen-bg { 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            width: 100vw; 
+            height: 100vh; 
+            object-fit: cover; 
+            z-index: 1; 
+        }
+        .ui-layer { 
+            position: fixed; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            z-index: 10; 
+            display: flex; 
+            flex-direction: column; 
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            visibility: hidden;
+        }
+        .ui-layer.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+        .header-safe-area { 
+            width: 100%; 
+            height: 80px; 
+            flex-shrink: 0; 
+            z-index: 30; 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 1rem;
+            position: relative;
+        }
+        .content-safe-area { 
+            flex: 1; 
+            overflow-y: auto; 
+            -webkit-overflow-scrolling: touch; 
+            background: transparent;
+            z-index: 20;
+        }
+        .footer-safe-area { 
+            width: 100%; 
+            height: 100px; 
+            flex-shrink: 0; 
+            z-index: 30; 
+            display: flex; 
+            justify-content: space-around; 
+            align-items: center; 
+            padding: 0 1rem;
+        }
+        .back-button { 
+            position: absolute; 
+            top: 50%;
+            left: 1rem;
+            transform: translateY(-50%);
+            z-index: 40; 
+        }
+        .loader-container { 
+            height: 100%; 
+            display: flex; 
+            flex-direction: column; 
+            justify-content: center; 
+            align-items: center; 
+        }
+        .loader { 
+            border: 6px solid rgba(0,0,0,0.2); 
+            border-radius: 50%; 
+            border-top: 6px solid #1f2937; 
+            width: 60px; 
+            height: 60px; 
+            animation: spin 1s linear infinite; 
+        }
+        @keyframes spin { 
+            0% { transform: rotate(0deg); } 
+            100% { transform: rotate(360deg); } 
+        }
+        .text-content {
+            padding: 2rem 1.5rem;
+            line-height: 1.8;
+            word-break: keep-all;
+            overflow-wrap: break-word;
+        }
+        .interactive-btn {
+            transition: transform 0.1s ease, background-color 0.2s ease;
+        }
+        .interactive-btn:active { 
+            transform: scale(0.95); 
+        }
+        .interactive-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .hidden { 
+            display: none !important; 
+        }
+        .readable-on-image {
+            color: white;
+            text-shadow: 0px 2px 8px rgba(0, 0, 0, 0.95);
+        }
+
+        .text-gemini-blue { color: var(--gemini-blue); }
+        
+        .readable-on-image.gemini-blue {
+            color: var(--gemini-blue);
+            text-shadow: none;
+        }
+        
+        #textOverlay.animate-in {
+            animation: fade-in-up 0.6s ease-out forwards;
+        }
+        @keyframes fade-in-up {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        #descriptionText .speaking {
+            background-color: rgba(0, 0, 0, 0.4);
+            transition: background-color 0.3s ease-in-out;
+            border-radius: 6px;
+            padding: 0.1em 0.2em;
+            box-decoration-break: clone;
+            -webkit-box-decoration-break: clone;
+        }
+        .mic-listening {
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(66, 133, 244, 0.7); }
+            70% { box-shadow: 0 0 0 12px rgba(66, 133, 244, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(66, 133, 244, 0); }
+        }
+        #archiveGrid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 4px;
+            padding: 4px;
+        }
+        .archive-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            aspect-ratio: 1 / 1;
+            display: block;
+            transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+        }
+        .toast-notification {
+            position: fixed;
+            bottom: 7rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.75);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 9999px;
+            z-index: 100;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            pointer-events: none;
+            text-align: center;
+            font-size: 0.9rem;
+        }
+        .toast-notification.show {
+            opacity: 1;
+        }
+        #mainPage:has(#cameraStartOverlay:not(.hidden)) > header {
+            visibility: hidden;
+        }
+        /* 보관함 아이템 선택 관련 스타일 */
+        .archive-item {
+            position: relative;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .archive-item.selectable {
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+        .archive-item.selectable:hover {
+            border-color: #3b82f6;
+            transform: scale(1.02);
+        }
+        .archive-item.selected {
+            border: 3px solid #3b82f6;
+            background-color: rgba(59, 130, 246, 0.1);
+            transform: scale(0.95);
+        }
+        .archive-item.selected::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(59, 130, 246, 0.3);
+            pointer-events: none;
+        }
+        .selection-checkbox {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 24px;
+            height: 24px;
+            background-color: rgba(255, 255, 255, 0.7);
+            border: 1px solid rgba(0,0,0,0.1);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+            opacity: 0;
+            transition: all 0.2s ease;
+            transform: scale(0.8);
+        }
+        .archive-item.selectable .selection-checkbox {
+            opacity: 1;
+            transform: scale(1);
+        }
+        .archive-item.selected .selection-checkbox {
+            background-color: #3b82f6;
+            border-color: #3b82f6;
+            opacity: 1;
+        }
+        .selection-checkbox svg {
+            opacity: 0;
+            transform: scale(0.5);
+            transition: all 0.2s ease;
+        }
+        .archive-item.selected .selection-checkbox svg {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        /* 텍스트 전용 결과 보기 (아이보리 배경) 스타일 */
+        #detailPage.bg-friendly {
+             background-color: #FFFEFA !important;
+        }
+        #detailPage.bg-friendly .readable-on-image {
+            color: #4A4A4A; /* Dark Grey-Brown */
+            text-shadow: none;
+        }
+        #detailPage.bg-friendly .back-button,
+        #detailPage.bg-friendly #detailFooter button {
+             color: var(--gemini-blue);
+        }
+        #detailPage.bg-friendly .back-button {
+            background-color: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+        #detailPage.bg-friendly #detailFooter button {
+            background-color: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+        }
+        #detailPage.bg-friendly #detailFooter button:hover:not(:disabled) {
+            background-color: rgba(243, 244, 246, 1);
+        }
+        #detailPage.bg-friendly #detailFooter button:disabled {
+            background-color: rgba(255, 255, 255, 0.9);
+            color: #9ca3af;
+            opacity: 1;
+        }
+        .loader-blue { 
+            border: 4px solid rgba(66, 133, 244, 0.2); 
+            border-top-color: var(--gemini-blue);
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://esm.sh/@google/genai@^0.14.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body style="background-color: #FFFEFA;">
+    <video id="camera-feed" class="full-screen-bg" autoplay playsinline muted></video>
+    <canvas id="capture-canvas" class="hidden"></canvas>
+    <input type="file" id="upload-input" class="hidden" accept="image/*">
+    <div id="toastContainer"></div>
+    
+    <!-- API Key Modal -->
+    <div id="apiKeyModal" class="absolute inset-0 z-50 bg-gray-900/80 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md text-center">
+            <h2 class="text-2xl font-bold mb-3 text-gray-800">API 키가 필요합니다</h2>
+            <p class="text-gray-600 mb-6">Google AI Studio에서 Gemini API 키를 발급받아 아래에 입력해주세요. 키는 현재 브라우저 세션에만 저장됩니다.</p>
+            <input type="password" id="apiKeyInput" class="w-full px-4 py-2 border border-gray-300 rounded-md mb-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Gemini API 키를 여기에 붙여넣으세요">
+            <button id="saveApiKeyBtn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-md hover:bg-blue-700 transition-colors interactive-btn">시작하기</button>
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="mt-4 inline-block text-sm text-blue-600 hover:underline">Google AI Studio에서 키 받기 &rarr;</a>
+        </div>
+    </div>
+
+    <!-- Main Page -->
+    <div id="mainPage" class="ui-layer">
+        <div id="cameraStartOverlay" class="absolute inset-0 z-50 flex flex-col items-center justify-center text-center p-4 cursor-pointer">
+            <h1 class="text-6xl font-bold readable-on-image gemini-blue mb-8">손안에 가이드</h1>
+            <p class="readable-on-image gemini-blue text-xl font-medium">사진을 찍거나 음성으로 질문하면<br>무엇이든 친절하게 설명해드려요.</p>
+        </div>
+        <div id="mainLoader" class="absolute inset-0 z-40 flex items-center justify-center hidden">
+            <div class="w-8 h-8 rounded-full animate-spin loader-blue"></div>
+        </div>
+        <header class="header-safe-area">
+             <!-- The title is now part of the cameraStartOverlay for a better intro experience -->
+        </header>
+        <div class="flex-1"></div>
+        <footer class="footer-safe-area">
+            <button id="shootBtn" aria-label="사진 촬영" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0-6c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2 2z"/><path d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h4.05l1.83-2h4.24l1.83 2H20v12z"/></svg>
+            </button>
+            <button id="micBtn" aria-label="음성으로 질문하기" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72h-1.7z"/></svg>
+            </button>
+            <button id="uploadBtn" aria-label="갤러리에서 업로드" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl" disabled>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M21 3H3C2 3 1 4 1 5v14c0 1.1.9 2 2 2h18c1 0 2-1 2-2V5c0-1-1-2-2-2zm-1 16H4V6h16v13zM8 11l3 4h5l-4-5-3 4z"/></svg>
+            </button>
+            <button id="archiveBtn" aria-label="보관함" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M19 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 14H6v-2h8v2zm2-4H6v-2h10v2zm0-4H6V6h10v2z"/></svg>
+            </button>
+        </footer>
+    </div>
+
+    <!-- Detail Page -->
+    <div id="detailPage" class="ui-layer">
+        <img id="resultImage" src="" alt="분석된 이미지" class="full-screen-bg">
+        <header class="header-safe-area">
+            <button id="backBtn" class="back-button w-12 h-12 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl" aria-label="뒤로가기">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
+            </button>
+            <div id="loadingHeader" class="text-center">
+                <h1 class="text-xl font-bold readable-on-image"></h1>
+            </div>
+        </header>
+        <div class="content-safe-area">
+            <div id="loader" class="loader-container">
+                <div class="loader"></div>
+                <p id="loadingText" class="readable-on-image text-lg mt-4 font-semibold text-center px-4">잠시만 기다려주세요...</p>
+            </div>
+            <div id="textOverlay" class="text-content hidden">
+                <p id="descriptionText" class="readable-on-image text-xl leading-relaxed"></p>
+            </div>
+        </div>
+        <footer id="detailFooter" class="footer-safe-area hidden" style="background: transparent;">
+             <button id="audioBtn" aria-label="오디오 재생" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <button id="textToggleBtn" aria-label="해설 읽기" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>
+            </button>
+            <button id="saveBtn" aria-label="보관함에 저장" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
+            </button>
+        </footer>
+    </div>
+
+    <!-- Archive Page -->
+    <div id="archivePage" class="ui-layer bg-white">
+        <!-- Default Header -->
+        <header id="archiveHeader" class="header-safe-area">
+            <button id="archiveBackBtn" class="back-button w-12 h-12 flex items-center justify-center rounded-full bg-gray-100 text-gray-800 interactive-btn" aria-label="뒤로가기">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
+            </button>
+            <h1 class="text-xl font-bold text-gray-800">보관함</h1>
+            <button id="selectArchiveBtn" class="absolute top-1/2 right-4 -translate-y-1/2 text-blue-600 font-semibold text-lg interactive-btn px-3 py-1 rounded-md hidden">선택</button>
+        </header>
+        <!-- Selection Mode Header -->
+        <header id="selectionHeader" class="header-safe-area hidden bg-gray-50 border-b border-gray-200">
+            <button id="cancelSelectionBtn" class="absolute top-1/2 left-4 -translate-y-1/2 text-blue-600 font-semibold text-lg interactive-btn px-3 py-1 rounded-md">취소</button>
+            <h1 id="selectionCount" class="text-xl font-bold text-gray-800">0개 선택</h1>
+            <button id="deleteSelectedBtn" class="absolute top-1/2 right-4 -translate-y-1/2 text-gemini-blue disabled:text-gray-400 hover:text-red-500 interactive-btn p-2" disabled aria-label="선택 항목 삭제">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" stroke="currentColor" fill="none" viewBox="0 0 24 24" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+            </button>
+        </header>
+        <div id="archiveGridContainer" class="content-safe-area">
+            <div id="archiveGrid"></div>
+            <p id="emptyArchiveMessage" class="text-slate-500 text-center mt-10 hidden">저장된 항목이 없습니다.</p>
+        </div>
+        <footer class="footer-safe-area" style="height: 20px;"></footer>
+    </div>
+
+<script type="module" src="./index.js"></script>
+</body>
+</html>

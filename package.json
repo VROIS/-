@@ -1,0 +1,11 @@
+{
+  "name": "naesone-travel-assistant",
+  "version": "1.0.0",
+  "description": "AI 기반 여행 가이드. 사진을 찍거나 음성으로 질문하면 AI가 상세한 설명을 제공합니다.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}
