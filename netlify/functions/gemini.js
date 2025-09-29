@@ -1,82 +1,116 @@
+// Netlify의 공식 스트리밍 핸들러와 Google GenAI SDK를 가져옵니다.
+const { stream } = require("@netlify/functions");
+const { GoogleGenAI } = require("@google/genai");
 
-import { GoogleGenAI } from "@google/genai";
+// Netlify의 stream() 함수로 전체 핸들러를 감싸서 스트리밍을 활성화합니다.
+exports.handler = stream(async (event) => {
+  const apiKey = process.env.GEMINI_API_KEY;
 
-export const handler = async (event) => {
-    // POST 요청만 허용합니다.
-    if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: '허용되지 않은 메소드입니다.' };
-    }
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: "Method Not Allowed" };
+  }
 
-    // Netlify 환경 변수에 API 키가 설정되어 있는지 확인합니다.
-    if (!process.env.API_KEY) {
-        console.error('API_KEY 환경 변수가 설정되지 않았습니다.');
-        return { statusCode: 500, body: JSON.stringify({ error: '서버 설정 오류입니다.' }) };
-    }
+  if (!apiKey) {
+    console.error("CRITICAL: GEMINI_API_KEY 환경 변수가 설정되지 않았습니다!");
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: "서버에 API 키가 설정되지 않았습니다. 관리자에게 문의해주세요." }),
+    };
+  }
 
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    
+  try {
+    let requestData;
     try {
-        const { prompt, base64Image, systemInstruction } = JSON.parse(event.body);
-
-        const contents = { parts: [] };
-        if (base64Image) {
-            contents.parts.push({
-                inlineData: { mimeType: 'image/jpeg', data: base64Image },
-            });
-        }
-        if (prompt) {
-            contents.parts.push({ text: prompt });
-        }
-
-        // Netlify Functions는 ReadableStream을 반환하여 스트리밍 응답을 지원합니다.
-        const stream = new ReadableStream({
-            async start(controller) {
-                const encoder = new TextEncoder();
-                try {
-                    const responseStream = await ai.models.generateContentStream({
-                        model: 'gemini-2.5-flash',
-                        contents: contents,
-                        config: {
-                            systemInstruction: systemInstruction,
-                        }
-                    });
-
-                    for await (const chunk of responseStream) {
-                        const text = chunk.text;
-                        if (text) {
-                            // 프론트엔드가 기대하는 Server-Sent Events (SSE) 형식으로 데이터를 포장합니다.
-                            const ssePayload = { text: text };
-                            const sseString = `data: ${JSON.stringify(ssePayload)}\n\n`;
-                            controller.enqueue(encoder.encode(sseString));
-                        }
-                    }
-                } catch (e) {
-                    console.error("Gemini 스트림 생성 중 오류 발생:", e);
-                    const errorPayload = { error: 'AI로부터 응답을 생성하는 데 실패했습니다.' };
-                    const sseString = `data: ${JSON.stringify(errorPayload)}\n\n`;
-                    controller.enqueue(encoder.encode(sseString));
-                } finally {
-                    // 스트림이 끝나면 컨트롤러를 닫습니다.
-                    controller.close();
-                }
-            }
-        });
-
-        return {
-            statusCode: 200,
-            headers: {
-                "Content-Type": "text/event-stream",
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-            },
-            body: stream,
-        };
-
-    } catch (error) {
-        console.error('요청 분석 또는 스트림 설정 중 오류 발생:', error);
-        return {
-            statusCode: 400,
-            body: JSON.stringify({ error: '잘못된 요청 본문입니다.' }),
-        };
+      requestData = JSON.parse(event.body);
+    } catch (parseError) {
+      console.error("JSON 파싱 오류:", parseError.message);
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: `잘못된 요청 형식입니다: ${parseError.message}` }),
+      };
     }
-};
+    
+    const { base64Image, prompt, systemInstruction } = requestData;
+
+    const isPromptEmpty = !prompt || prompt.trim() === '';
+    const isImageEmpty = !base64Image;
+
+    if (isPromptEmpty && isImageEmpty) {
+      console.error("필수 데이터 누락: prompt 또는 base64Image가 없습니다.");
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: "요청 본문에 필수 데이터(prompt 또는 base64Image)가 누락되었습니다." }),
+      };
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
+    
+    let parts = [];
+
+    if (base64Image) {
+      parts.push({
+        inlineData: {
+          mimeType: "image/jpeg",
+          data: base64Image,
+        },
+      });
+    }
+
+    if (prompt && prompt.trim() !== '') {
+      parts.push({ text: prompt });
+    }
+
+    const model = 'gemini-2.5-flash';
+    const contents = { parts };
+
+    // 핵심 기능인 속도 최적화 옵션을 그대로 유지합니다.
+    const config = {
+      systemInstruction,
+      thinkingConfig: {
+        thinkingBudget: 0,
+      },
+    };
+
+    console.log("Gemini API(스트리밍)로 전송할 요청 본문:", JSON.stringify({ model, contents, config }));
+
+    const responseStream = await ai.models.generateContentStream({ model, contents, config });
+
+    // [핵심 변경] Google AI 스트림을 Netlify가 이해할 수 있는 ReadableStream으로 변환합니다.
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const encoder = new TextEncoder();
+
+    // 비동기 함수로 Gemini 스트림을 읽어 Netlify 스트림으로 데이터를 씁니다.
+    (async () => {
+      try {
+        for await (const chunk of responseStream) {
+          const text = chunk.text;
+          if (text) {
+            writer.write(encoder.encode(text));
+          }
+        }
+      } catch (error) {
+        console.error("스트림 처리 중 오류:", error);
+        writer.write(encoder.encode(`\n[오류 발생: ${error.message}]`));
+      } finally {
+        writer.close();
+      }
+    })();
+
+    // Netlify stream 핸들러에 최종 응답 객체를 반환합니다.
+    return {
+      statusCode: 200,
+      headers: { 
+        "Content-Type": "text/plain; charset=utf-8",
+      },
+      body: readable, // body에 ReadableStream 자체를 전달합니다.
+    };
+
+  } catch (error) {
+    console.error("Netlify 함수 오류:", error.message);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: `AI 통신 중 오류: ${error.message}` }),
+    };
+  }
+});

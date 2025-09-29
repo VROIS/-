@@ -1,6 +1,6 @@
-// Import services and utils
-import * as gemini from './services/geminiService.js';
-import { optimizeImage } from './utils/imageOptimizer.js';
+// Import services and utils from the root directory
+import * as gemini from './geminiservice.js';
+import { optimizeImage } from './imageoptimizer.js';
 
 document.addEventListener('DOMContentLoaded', () => {
     // DOM Elements
@@ -9,15 +9,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const uploadInput = document.getElementById('upload-input');
     const toastContainer = document.getElementById('toastContainer');
     
-    // API Key Modal Elements
-    const apiKeyModal = document.getElementById('apiKeyModal');
-    const apiKeyInput = document.getElementById('apiKeyInput');
-    const saveApiKeyBtn = document.getElementById('saveApiKeyBtn');
+    // Share Modal Elements (Now used for loading state)
+    const shareModal = document.getElementById('shareModal');
+    const shareModalContent = document.getElementById('shareModalContent');
+    const closeShareModalBtn = document.getElementById('closeShareModalBtn');
 
     // Pages
+    const featuresPage = document.getElementById('featuresPage');
     const mainPage = document.getElementById('mainPage');
     const detailPage = document.getElementById('detailPage');
     const archivePage = document.getElementById('archivePage');
+    const settingsPage = document.getElementById('settingsPage'); // New page
+
+    // Features Page Elements
+    const startCameraFromFeaturesBtn = document.getElementById('startCameraFromFeaturesBtn');
 
     // Main Page Elements
     const cameraStartOverlay = document.getElementById('cameraStartOverlay');
@@ -48,10 +53,29 @@ document.addEventListener('DOMContentLoaded', () => {
     const emptyArchiveMessage = document.getElementById('emptyArchiveMessage');
     const archiveHeader = document.getElementById('archiveHeader');
     const selectionHeader = document.getElementById('selectionHeader');
-    const selectArchiveBtn = document.getElementById('selectArchiveBtn');
     const cancelSelectionBtn = document.getElementById('cancelSelectionBtn');
     const selectionCount = document.getElementById('selectionCount');
     const deleteSelectedBtn = document.getElementById('deleteSelectedBtn');
+    const archiveSelectBtn = document.getElementById('archiveSelectBtn');
+    const archiveShareBtn = document.getElementById('archiveShareBtn');
+    const archiveSettingsBtn = document.getElementById('archiveSettingsBtn');
+
+    // Settings Page Elements
+    const settingsBackBtn = document.getElementById('settingsBackBtn');
+    const authSection = document.getElementById('authSection');
+    const authForm = document.getElementById('authForm');
+    const authPassword = document.getElementById('authPassword');
+    const promptSettingsSection = document.getElementById('promptSettingsSection');
+    const imagePromptTextarea = document.getElementById('imagePromptTextarea');
+    const textPromptTextarea = document.getElementById('textPromptTextarea');
+    const savePromptsBtn = document.getElementById('savePromptsBtn');
+    const resetPromptsBtn = document.getElementById('resetPromptsBtn');
+    // v1.8: New Demo Elements
+    const imageSynthesisPromptTextarea = document.getElementById('imageSynthesisPromptTextarea');
+    const generateImageBtn = document.getElementById('generateImageBtn');
+    const videoGenerationPromptTextarea = document.getElementById('videoGenerationPromptTextarea');
+    const generateVideoBtn = document.getElementById('generateVideoBtn');
+
 
     // Web Speech API
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -67,13 +91,82 @@ document.addEventListener('DOMContentLoaded', () => {
     let isSpeaking = false;
     let isPaused = false;
     let currentlySpeakingElement = null;
+    let lastAudioClickTime = 0;
 
     // App State
-    const STORAGE_KEY = 'travel_assistant_archive';
     let currentContent = { imageDataUrl: null, description: '' };
     let isSelectionMode = false;
     let selectedItemIds = new Set();
+    let cameFromArchive = false;
     
+    // --- IndexedDB Setup ---
+    const DB_NAME = 'TravelGuideDB';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'archive';
+    let db;
+
+    function openDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, DB_VERSION);
+            request.onerror = (event) => reject("IndexedDB error: " + event.target.errorCode);
+            request.onsuccess = (event) => {
+                db = event.target.result;
+                resolve(db);
+            };
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+                }
+            };
+        });
+    }
+
+    function addItem(item) {
+        return new Promise(async (resolve, reject) => {
+            if (!db) return reject("DB not open");
+            
+            // Generate a unique ID for both IndexedDB and server usage.
+            const uniqueId = item.id || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const itemWithId = { ...item, id: uniqueId };
+
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.add(itemWithId);
+            
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = (event) => reject("Error adding item: " + event.target.error);
+        });
+    }
+
+    function getAllItems() {
+        return new Promise((resolve, reject) => {
+            if (!db) return reject("DB not open");
+            const transaction = db.transaction([STORE_NAME], 'readonly');
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result.reverse()); // Show newest first
+            request.onerror = (event) => reject("Error getting items: " + event.target.error);
+        });
+    }
+    
+    function deleteItems(ids) {
+        return new Promise((resolve, reject) => {
+            if (!db) return reject("DB not open");
+            const transaction = db.transaction([STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            let deletePromises = [];
+            ids.forEach(id => {
+                deletePromises.push(new Promise((res, rej) => {
+                    const request = store.delete(id);
+                    request.onsuccess = res;
+                    request.onerror = rej;
+                }));
+            });
+            Promise.all(deletePromises).then(resolve).catch(reject);
+        });
+    }
+
     // --- UI Helpers ---
     function showToast(message, duration = 3000) {
         if (!toastContainer) return;
@@ -93,58 +186,52 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }, duration);
     }
-
+    
     // --- Page Control ---
     function showPage(pageToShow) {
-        [mainPage, detailPage, archivePage].forEach(page => {
+        [featuresPage, mainPage, detailPage, archivePage, settingsPage].forEach(page => {
             if (page) page.classList.toggle('visible', page === pageToShow);
         });
     }
     
-    async function showMainPage() {
+    function showMainPage() {
+        cameFromArchive = false; // Reset navigation state
         synth.cancel();
         resetSpeechState();
         showPage(mainPage);
 
         detailPage.classList.remove('bg-friendly');
         cameraStartOverlay.classList.add('hidden');
+        mainFooter.classList.remove('hidden');
 
-        mainLoader.classList.remove('hidden');
-        mainFooter.classList.add('hidden');
-
-        try {
-            if (!isCameraActive && gemini.isInitialized()) {
-                await startCamera();
-            }
-        } catch (error) {
-            console.error("카메라를 다시 시작하지 못했습니다.", error);
-            showToast("카메라를 시작하지 못했습니다. 앱을 새로고침 해주세요.");
-        } finally {
-            mainLoader.classList.add('hidden');
-            mainFooter.classList.remove('hidden');
+        if (stream && !isCameraActive) {
+            resumeCamera();
         }
     }
 
     function showDetailPage(isFromArchive = false) {
-        stopCamera();
+        pauseCamera();
         showPage(detailPage);
         saveBtn.disabled = isFromArchive;
-        if (isFromArchive) {
-            const savedIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>`;
-            saveBtn.innerHTML = savedIcon;
-        } else {
-             const notSavedIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>`;
-             saveBtn.innerHTML = notSavedIcon;
-        }
     }
 
-    function showArchivePage() {
-        stopCamera();
-        if (isSelectionMode) { // Exit selection mode if active
-            toggleSelectionMode(false); // Explicitly exit
+    async function showArchivePage() {
+        pauseCamera();
+        if (isSelectionMode) { 
+            toggleSelectionMode(false);
         }
-        renderArchive();
+        await renderArchive();
         showPage(archivePage);
+    }
+
+    function showSettingsPage() {
+        pauseCamera();
+        // Reset settings page state
+        authPassword.value = '';
+        authSection.classList.remove('hidden');
+        promptSettingsSection.classList.add('hidden');
+        populatePromptTextareas(); // Load saved or default prompts
+        showPage(settingsPage);
     }
     
     function resetSpeechState() {
@@ -157,25 +244,16 @@ document.addEventListener('DOMContentLoaded', () => {
         currentlySpeakingElement = null;
     }
 
-    // --- App Initialization ---AIzaSyCc1AqK3B-ttoDEhORCcwUQWfqTCU2olr4
-    function initializeApp() {
-        // --- 시작: API 키를 여기에 직접 입력해주세요! ---
-        // 아래 "여기에_친구의_Gemini_API_키를_붙여넣으세요" 부분에
-        // 실제 API 키를 복사해서 붙여넣으면, 시작 시 API 키 입력창이 나타나지 않습니다.
-        const apiKey = "AIzaSyCc1AqK3B-ttoDEhORCcwUQWfqTCU2olr4";
-        gemini.init(apiKey);
-        // --- 끝: API 키 입력 부분 ---
-
-        /* --- 시작: 기존 코드는 나중에 다시 사용하기 위해 잠시 보관(주석 처리)합니다 ---
-        const apiKey = sessionStorage.getItem('GEMINI_API_KEY');
-        if (apiKey) {
-            gemini.init(apiKey);
-        } else {
-            apiKeyModal.classList.remove('hidden');
+    // --- App Initialization ---
+    async function initializeApp() {
+        try {
+            await openDB();
+        } catch(e) {
+            console.error("Failed to open database", e);
+            showToast("데이터베이스를 열 수 없습니다. 앱이 정상적으로 작동하지 않을 수 있습니다.");
         }
-        --- 끝: 기존 코드 보관 --- */
-
-        showPage(mainPage);
+        
+        // The landing page animation will handle showing the features page initially.
         if (recognition) {
             recognition.continuous = false;
             recognition.lang = 'ko-KR';
@@ -183,36 +261,29 @@ document.addEventListener('DOMContentLoaded', () => {
             recognition.maxAlternatives = 1;
         }
     }
-
-    async function handleStartCameraClick() {
-        if (!gemini.isInitialized()) {
-            showToast("API 키를 먼저 설정해주세요.");
-            apiKeyModal.classList.remove('hidden');
-            return;
-        }
-
+    
+    async function handleStartFeaturesClick() {
+        showPage(mainPage);
+        cameraStartOverlay.classList.add('hidden');
+    
         if (synth && !synth.speaking) {
             const unlockUtterance = new SpeechSynthesisUtterance('');
             synth.speak(unlockUtterance);
             synth.cancel();
         }
-
-        cameraStartOverlay.removeEventListener('click', handleStartCameraClick);
-
-        cameraStartOverlay.querySelector('h1').classList.add('hidden');
-        cameraStartOverlay.querySelector('p').classList.add('hidden');
+    
         mainLoader.classList.remove('hidden');
-
+    
         try {
-            await startCamera();
-            cameraStartOverlay.classList.add('hidden');
+            if (!stream) {
+                await startCamera();
+            } else {
+                resumeCamera();
+            }
         } catch (error) {
             console.error(`Initialization error: ${error.message}`);
-            cameraStartOverlay.querySelector('h1').classList.remove('hidden');
-            const p = cameraStartOverlay.querySelector('p');
-            p.classList.remove('hidden');
-            if (p) p.innerHTML = "카메라 시작 실패.<br>다시 터치해주세요.";
-            cameraStartOverlay.addEventListener('click', handleStartCameraClick);
+            showToast("카메라 시작에 실패했습니다. 권한을 확인해주세요.");
+            showPage(featuresPage);
         } finally {
             mainLoader.classList.add('hidden');
         }
@@ -226,10 +297,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 const err = new Error("카메라 기능을 지원하지 않는 브라우저입니다.");
-                console.error("Camera unsupported:", err);
-                shootBtn.disabled = true;
-                uploadBtn.disabled = true;
-                micBtn.disabled = true;
                 return reject(err);
             }
 
@@ -244,36 +311,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     cameraStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
                 } catch (fallbackErr) {
-                    console.error("Camera access denied for all constraints:", fallbackErr);
-                    shootBtn.disabled = true;
-                    uploadBtn.disabled = true;
-                    micBtn.disabled = true;
                     return reject(fallbackErr);
                 }
             }
             
             stream = cameraStream;
             video.srcObject = stream;
+            video.play().catch(e => console.error("Video play failed:", e));
             video.onloadedmetadata = () => {
-                shootBtn.disabled = false;
-                uploadBtn.disabled = false;
-                micBtn.disabled = false;
+                [shootBtn, uploadBtn, micBtn].forEach(btn => {
+                    if (btn) btn.disabled = false;
+                });
                 isCameraActive = true;
                 resolve();
             };
-            video.onerror = (err) => {
-                console.error("Video element error:", err);
-                reject(new Error("Failed to load video stream."));
-            };
+            video.onerror = (err) => reject(new Error("Failed to load video stream."));
         });
     }
 
-    function stopCamera() {
+    function pauseCamera() {
         if (stream) {
-            stream.getTracks().forEach(track => track.stop());
-            stream = null;
-            video.srcObject = null;
+            stream.getTracks().forEach(track => track.enabled = false);
             isCameraActive = false;
+        }
+    }
+
+    function resumeCamera() {
+        if (stream) {
+            stream.getTracks().forEach(track => track.enabled = true);
+            isCameraActive = true;
+            video.play().catch(e => console.error("Video resume play failed:", e));
         }
     }
 
@@ -284,7 +351,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const context = canvas.getContext('2d');
         if (context) {
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            processImage(canvas.toDataURL('image/jpeg'));
+            processImage(canvas.toDataURL('image/jpeg'), shootBtn);
         }
     }
     
@@ -292,13 +359,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const file = event.target.files?.[0];
         if (file) {
             const reader = new FileReader();
-            reader.onload = (e) => processImage(e.target?.result);
+            reader.onload = (e) => processImage(e.target?.result, uploadBtn);
             reader.readAsDataURL(file);
         }
         event.target.value = '';
     }
 
-    async function processImage(dataUrl) {
+    async function processImage(dataUrl, sourceButton) {
+        sourceButton.disabled = true;
+        cameFromArchive = false;
         if (synth.speaking || synth.pending) synth.cancel();
         resetSpeechState();
 
@@ -326,19 +395,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 2000);
 
         try {
-            if (!gemini.isInitialized()) {
-                apiKeyModal.classList.remove('hidden');
-                showToast("API 키를 먼저 설정해주세요.");
-                showMainPage();
-                clearInterval(loadingInterval);
-                return;
-            }
-
             const optimizedDataUrl = await optimizeImage(dataUrl);
             const base64Image = optimizedDataUrl.split(',')[1];
             currentContent.imageDataUrl = optimizedDataUrl;
 
-            const responseStream = await gemini.generateDescriptionStream(base64Image);
+            const responseStream = gemini.generateDescriptionStream(base64Image);
             
             clearInterval(loadingInterval);
             loader.classList.add('hidden');
@@ -384,55 +445,43 @@ document.addEventListener('DOMContentLoaded', () => {
             loadingHeader.classList.add('hidden');
             textOverlay.classList.remove('hidden');
             let errorMessage = "이미지 해설 중 오류가 발생했습니다. 네트워크 연결을 확인하고 다시 시도해 주세요.";
-            if (err.message && err.message.includes("API key not valid")) {
-                errorMessage = "API 키가 올바르지 않습니다. 확인 후 다시 입력해주세요.";
-                sessionStorage.removeItem('GEMINI_API_KEY');
-                gemini.init(null); // 서비스 초기화 해제
-                apiKeyModal.classList.remove('hidden');
-            }
             descriptionText.innerText = errorMessage;
             updateAudioButton('disabled');
+        } finally {
+             sourceButton.disabled = false;
         }
     }
     
     function handleMicButtonClick() {
-        if (!recognition) {
-            showToast("음성 인식이 지원되지 않는 브라우저입니다.");
-            return;
-        }
-
-        if (isRecognizing) {
-            return;
-        }
+        if (!recognition) return showToast("음성 인식이 지원되지 않는 브라우저입니다.");
+        if (isRecognizing) return recognition.stop();
         
-        showToast('마이크에 대고 말씀해주세요...');
         isRecognizing = true;
         micBtn.classList.add('mic-listening');
         recognition.start();
 
         recognition.onresult = (event) => {
-            const transcript = event.results[0][0].transcript;
-            processTextQuery(transcript);
+            processTextQuery(event.results[0][0].transcript);
         };
 
         recognition.onerror = (event) => {
             console.error('Speech recognition error:', event.error);
-            if (event.error === 'no-speech') {
-                showToast('음성을 인식하지 못했습니다. 주변 소음을 줄이고 다시 시도해주세요.');
-            } else if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-                showToast('마이크 사용 권한이 필요합니다.');
-            } else {
-                showToast('음성 인식 중 오류가 발생했습니다.');
-            }
+            const messages = {
+                'no-speech': '음성을 듣지 못했어요. 다시 시도해볼까요?',
+                'not-allowed': '마이크 사용 권한이 필요합니다.',
+                'service-not-allowed': '마이크 사용 권한이 필요합니다.'
+            };
+            showToast(messages[event.error] || '음성 인식 중 오류가 발생했습니다.');
         };
         
         recognition.onend = () => {
-            micBtn.classList.remove('mic-listening');
             isRecognizing = false;
+            micBtn.classList.remove('mic-listening');
         };
     }
     
     async function processTextQuery(prompt) {
+        cameFromArchive = false;
         if (synth.speaking || synth.pending) synth.cancel();
         resetSpeechState();
         
@@ -463,15 +512,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 2000);
 
         try {
-            if (!gemini.isInitialized()) {
-                apiKeyModal.classList.remove('hidden');
-                showToast("API 키를 먼저 설정해주세요.");
-                showMainPage();
-                clearInterval(loadingInterval);
-                return;
-            }
-
-            const responseStream = await gemini.generateTextStream(prompt);
+            const responseStream = gemini.generateTextStream(prompt);
             
             clearInterval(loadingInterval);
             loader.classList.add('hidden');
@@ -513,172 +554,163 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             console.error("답변 오류:", err);
             clearInterval(loadingInterval);
-            loader.classList.add('hidden');
-            loadingHeader.classList.add('hidden');
             textOverlay.classList.remove('hidden');
-            let errorMessage = "답변 생성 중 오류가 발생했습니다. 네트워크 연결을 확인하고 다시 시도해 주세요.";
-            if (err.message && err.message.includes("API key not valid")) {
-                errorMessage = "API 키가 올바르지 않습니다. 확인 후 다시 입력해주세요.";
-                sessionStorage.removeItem('GEMINI_API_KEY');
-                gemini.init(null); // 서비스 초기화 해제
-                apiKeyModal.classList.remove('hidden');
-            }
-            descriptionText.innerText = errorMessage;
+            descriptionText.innerText = "답변 생성 중 오류가 발생했습니다. 네트워크 연결을 확인하고 다시 시도해 주세요.";
             updateAudioButton('disabled');
         }
     }
 
-    function getArchive() {
-        const data = localStorage.getItem(STORAGE_KEY);
-        if (!data) {
-            return [];
-        }
-        try {
-            return JSON.parse(data);
-        } catch (e) {
-            console.error("Failed to parse archive data from localStorage. Data might be corrupted.", e);
-            return [];
-        }
-    }
-
-    function saveToArchive(items) {
-        try {
-            const dataToSave = JSON.stringify(items);
-            localStorage.setItem(STORAGE_KEY, dataToSave);
-            return true; // Indicate success
-        } catch (e) {
-            console.error("Failed to save to archive:", e);
-            if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
-                showToast("저장 공간이 부족하여 작업을 완료할 수 없습니다.");
-            } else {
-                showToast("알 수 없는 오류로 저장/삭제에 실패했습니다.");
-            }
-            return false; // Indicate failure
-        }
-    }
-
-    function handleSaveClick() {
+    async function handleSaveClick() {
         if (!currentContent.description || !currentContent.imageDataUrl) return;
+        saveBtn.disabled = true;
 
-        const archive = getArchive();
-        const newItem = {
-            id: Date.now(),
-            ...currentContent
-        };
-        archive.unshift(newItem);
-        
-        const success = saveToArchive(archive);
-
-        if (success) {
+        try {
+            await addItem(currentContent);
             showToast("보관함에 저장되었습니다.");
-            saveBtn.disabled = true;
-            const savedIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>`;
-            saveBtn.innerHTML = savedIcon;
+        } catch(e) {
+            console.error("Failed to save to archive:", e);
+            showToast("저장에 실패했습니다. 저장 공간이 부족할 수 있습니다.");
+            saveBtn.disabled = false;
         }
     }
     
     function toggleSelectionMode(forceState) {
-        const previousState = isSelectionMode;
         isSelectionMode = (typeof forceState === 'boolean') ? forceState : !isSelectionMode;
-
         archiveHeader.classList.toggle('hidden', isSelectionMode);
         selectionHeader.classList.toggle('hidden', !isSelectionMode);
 
         if (isSelectionMode) {
-            // Entering selection mode
-            selectedItemIds.clear(); // Always start fresh
-            updateSelectionHeader();
-            renderArchive(); // Re-render to show selectable items
-        } else if (previousState) {
-            // Exiting selection mode (only if it was previously active)
             selectedItemIds.clear();
-            renderArchive(); // Re-render to hide selectable items
+            updateSelectionHeader();
         }
+        renderArchive();
     }
     
     function updateSelectionHeader() {
         const count = selectedItemIds.size;
         selectionCount.textContent = `${count}개 선택`;
         deleteSelectedBtn.disabled = count === 0;
+        archiveShareBtn.disabled = count === 0;
     }
 
-    function handleDeleteSelected() {
+    async function handleDeleteSelected() {
         const count = selectedItemIds.size;
         if (count === 0) return;
-    
-        const message = count === 1 ? '1개의 항목을 삭제하시겠습니까?' : `${count}개의 항목을 삭제하시겠습니까?`;
         
-        if (confirm(message)) {
-            let archive = getArchive();
-            const updatedArchive = archive.filter(item => !selectedItemIds.has(Number(item.id)));
-            const success = saveToArchive(updatedArchive);
-    
-            if (success) {
+        if (confirm(`${count}개의 항목을 삭제하시겠습니까?`)) {
+            deleteSelectedBtn.disabled = true;
+            try {
+                await deleteItems(Array.from(selectedItemIds));
                 showToast(`${count}개 항목이 삭제되었습니다.`);
-                // Manually exit selection mode and re-render for robustness.
-                isSelectionMode = false;
-                selectedItemIds.clear();
-                archiveHeader.classList.remove('hidden');
-                selectionHeader.classList.add('hidden');
-                renderArchive(); // Re-render the grid with the latest data from storage.
-            } else {
-                showToast('삭제 중 오류가 발생했습니다.');
+                toggleSelectionMode(false);
+            } catch (e) {
+                 showToast('삭제 중 오류가 발생했습니다.');
+                 console.error("Deletion error:", e);
+                 deleteSelectedBtn.disabled = false;
             }
         }
     }
-
-    function renderArchive(itemsToRender) {
-        const archive = itemsToRender || getArchive();
-        archiveGrid.innerHTML = '';
     
-        const hasItems = archive.length > 0;
-        emptyArchiveMessage.classList.toggle('hidden', hasItems);
-        selectArchiveBtn.classList.toggle('hidden', !hasItems);
+    /**
+     * Creates a new guidebook from selected items and copies the link to the clipboard.
+     */
+    async function handleCreateGuidebookClick() {
+        const idsToShare = Array.from(selectedItemIds);
+        if (idsToShare.length === 0) {
+            showToast("공유할 항목을 먼저 선택해주세요.");
+            return;
+        }
     
-        if (hasItems) {
-            archive.forEach(item => {
-                const itemId = Number(item.id);
-                const description = item.description || '';
-                
-                const itemDiv = document.createElement('div');
-                itemDiv.className = 'archive-item';
-                itemDiv.dataset.id = itemId.toString();
+        const originalBtnContent = archiveShareBtn.innerHTML;
+        const spinnerIcon = `<div class="w-8 h-8 rounded-full animate-spin loader-blue"></div>`;
+        archiveShareBtn.innerHTML = spinnerIcon;
+        archiveShareBtn.disabled = true;
     
-                if (isSelectionMode) {
-                    itemDiv.classList.add('selectable');
-                    if (selectedItemIds.has(itemId)) {
-                        itemDiv.classList.add('selected');
-                    }
-                }
-    
-                itemDiv.setAttribute('role', 'button');
-                itemDiv.setAttribute('tabindex', '0');
-                itemDiv.setAttribute('aria-label', `보관된 항목: ${description.substring(0, 30)}...`);
-                
-                if (isSelectionMode) {
-                    const checkbox = document.createElement('div');
-                    checkbox.className = 'selection-checkbox';
-                    checkbox.innerHTML = `
-                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
-                        </svg>
-                    `;
-                    itemDiv.appendChild(checkbox);
-                }
-    
-                const img = document.createElement('img');
-                img.src = item.imageDataUrl || 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
-                img.alt = description.substring(0, 30);
-                img.loading = 'lazy';
-                
-                itemDiv.appendChild(img);
-                archiveGrid.appendChild(itemDiv);
+        try {
+            const response = await fetch('/.netlify/functions/share', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contentIds: idsToShare }),
             });
+    
+            const result = await response.json();
+    
+            if (!response.ok) {
+                throw new Error(result.error || `서버 오류: ${response.status}`);
+            }
+    
+            const { guidebookId } = result;
+            // Note: A 'share.html' page will need to be created to view this link.
+            const shareUrl = `${window.location.origin}/share.html?guidebook_id=${guidebookId}`;
+    
+            await navigator.clipboard.writeText(shareUrl);
+            showToast("가이드북 링크가 클립보드에 복사되었어요!");
+            toggleSelectionMode(false); // Exit selection mode on success
+    
+        } catch (error) {
+            console.error("가이드북 생성 오류:", error);
+            showToast(`오류: ${error.message}`);
+            archiveShareBtn.innerHTML = originalBtnContent;
+            updateSelectionHeader(); // Restore button state
+        }
+    }
+
+
+    async function renderArchive() {
+        try {
+            const archive = await getAllItems();
+            archiveGrid.innerHTML = '';
+        
+            const hasItems = archive.length > 0;
+            emptyArchiveMessage.classList.toggle('hidden', hasItems);
+            archiveSelectBtn.classList.toggle('hidden', !hasItems);
+        
+            if (hasItems) {
+                archive.forEach(item => {
+                    const itemId = item.id;
+                    
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'archive-item';
+                    itemDiv.dataset.id = itemId;
+        
+                    if (isSelectionMode) {
+                        itemDiv.classList.add('selectable');
+                        if (selectedItemIds.has(itemId)) {
+                            itemDiv.classList.add('selected');
+                        }
+                    }
+        
+                    itemDiv.setAttribute('role', 'button');
+                    itemDiv.setAttribute('tabindex', '0');
+                    itemDiv.setAttribute('aria-label', `보관된 항목: ${item.description.substring(0, 30)}...`);
+                    
+                    if (isSelectionMode) {
+                        const checkbox = document.createElement('div');
+                        checkbox.className = 'selection-checkbox';
+                        checkbox.innerHTML = `<svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>`;
+                        itemDiv.appendChild(checkbox);
+                    }
+        
+                    const img = document.createElement('img');
+                    img.src = item.imageDataUrl;
+                    img.alt = item.description.substring(0, 30);
+                    img.loading = 'lazy';
+                    
+                    itemDiv.appendChild(img);
+                    archiveGrid.appendChild(itemDiv);
+                });
+            }
+        } catch (e) {
+            console.error("Could not render archive:", e);
+            showToast("보관함 목록을 불러오는 데 실패했습니다.");
+            emptyArchiveMessage.classList.remove('hidden');
+            archiveSelectBtn.classList.add('hidden');
         }
     }
     
 
     function populateDetailPageFromArchive(item) {
+        cameFromArchive = true;
         resetSpeechState();
         
         resultImage.src = item.imageDataUrl || '';
@@ -722,7 +754,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         isSpeaking = true;
-        const { utterance, element } = utteranceQueue[0];
+        const { utterance, element } = utteranceQueue.shift();
         
         if (currentlySpeakingElement) {
             currentlySpeakingElement.classList.remove('speaking');
@@ -731,7 +763,6 @@ document.addEventListener('DOMContentLoaded', () => {
         currentlySpeakingElement = element;
         
         utterance.onend = () => {
-            utteranceQueue.shift();
             playNextInQueue();
         };
 
@@ -748,15 +779,32 @@ document.addEventListener('DOMContentLoaded', () => {
             playNextInQueue();
         }
     }
+    
+    function restartAudio() {
+        synth.cancel();
+        resetSpeechState();
+
+        const sentences = Array.from(descriptionText.querySelectorAll('span'));
+        if (sentences.length === 0) {
+             const description = descriptionText.textContent || '';
+             const sentenceChunks = description.match(/[^.?!]+[.?!]+/g) || [description];
+             sentenceChunks.forEach(sentence => {
+                if (sentence.trim()) queueForSpeech(sentence.trim(), document.createElement('span'));
+             });
+        } else {
+             sentences.forEach(span => {
+                const text = span.textContent.trim();
+                if (text) queueForSpeech(text, span);
+            });
+        }
+        playNextInQueue();
+    }
 
     function handleAudioButtonClick() {
         if (!isSpeaking && utteranceQueue.length > 0) {
             isPaused = false;
-            if (synth.paused) {
-                synth.resume();
-            } else {
-                playNextInQueue();
-            }
+            if (synth.paused) synth.resume();
+            else playNextInQueue();
             updateAudioButton('pause');
         } else if (isSpeaking && !isPaused) {
             isPaused = true;
@@ -769,9 +817,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
+    function onAudioBtnClick() {
+        const now = Date.now();
+        if (now - lastAudioClickTime < 350) {
+            restartAudio();
+        } else {
+            handleAudioButtonClick();
+        }
+        lastAudioClickTime = now;
+    }
+    
     function updateAudioButton(state) {
-        const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
-        const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`;
+        const playIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.648c1.295.748 1.295 2.538 0 3.286L7.279 20.99c-1.25.717-2.779-.217-2.779-1.643V5.653z" clip-rule="evenodd" /></svg>`;
+        const pauseIcon = `<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor"><path fill-rule="evenodd" d="M6.75 5.25a.75 .75 0 01.75-.75H9a.75 .75 0 01.75.75v13.5a.75 .75 0 01-.75.75H7.5a.75 .75 0 01-.75-.75V5.25zm7.5 0a.75 .75 0 01.75-.75h1.5a.75 .75 0 01.75.75v13.5a.75 .75 0 01-.75.75h-1.5a.75 .75 0 01-.75-.75V5.25z" clip-rule="evenodd" /></svg>`;
         const loadingIcon = `<div class="w-8 h-8 rounded-full animate-spin loader-blue"></div>`;
 
         audioBtn.disabled = state === 'loading' || state === 'disabled';
@@ -797,18 +855,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function handleArchiveGridClick(event) {
+    async function handleArchiveGridClick(event) {
         const itemDiv = event.target.closest('.archive-item');
         if (!itemDiv) return;
     
-        const itemIdString = itemDiv.dataset.id;
-        const itemId = Number(itemIdString);
+        const itemId = itemDiv.dataset.id;
         
-        if (isNaN(itemId)) {
-            console.warn('Invalid item ID:', itemIdString);
-            return;
-        }
-    
         if (isSelectionMode) {
             event.preventDefault();
             
@@ -821,83 +873,125 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             updateSelectionHeader();
         } else {
-            const archive = getArchive();
-            const item = archive.find(i => Number(i.id) === itemId);
-            if (item) {
-                populateDetailPageFromArchive(item);
-            }
+            const archive = await getAllItems();
+            const item = archive.find(i => i.id === itemId);
+            if (item) populateDetailPageFromArchive(item);
         }
     }
 
-    function handleArchiveGridKeydown(event) {
+    async function handleArchiveGridKeydown(event) {
         if (event.key === 'Enter' || event.key === ' ') {
             const itemDiv = document.activeElement;
             if (!isSelectionMode && itemDiv.classList.contains('archive-item') && archiveGrid.contains(itemDiv)) {
                 event.preventDefault(); 
-                const itemId = Number(itemDiv.dataset.id);
-                if (isNaN(itemId)) return;
-
-                const archive = getArchive();
-                const item = archive.find(i => Number(i.id) === itemId);
-                if (item) {
-                    populateDetailPageFromArchive(item);
-                }
+                const itemId = itemDiv.dataset.id;
+                const archive = await getAllItems();
+                const item = archive.find(i => i.id === itemId);
+                if (item) populateDetailPageFromArchive(item);
             }
         }
     }
     
+    // --- Settings Page Logic ---
+    function handleAuth(event) {
+        event.preventDefault();
+        if (authPassword.value === '1234') {
+            authSection.classList.add('hidden');
+            promptSettingsSection.classList.remove('hidden');
+            showToast('인증되었습니다.', 2000);
+        } else {
+            showToast('인증번호가 올바르지 않습니다.', 2000);
+            authPassword.value = '';
+        }
+    }
+
+    function populatePromptTextareas() {
+        imagePromptTextarea.value = localStorage.getItem('customImagePrompt') || gemini.DEFAULT_IMAGE_PROMPT;
+        textPromptTextarea.value = localStorage.getItem('customTextPrompt') || gemini.DEFAULT_TEXT_PROMPT;
+    }
+
+    function savePrompts() {
+        savePromptsBtn.classList.add('bg-blue-800');
+        setTimeout(() => savePromptsBtn.classList.remove('bg-blue-800'), 200);
+
+        try {
+            localStorage.setItem('customImagePrompt', imagePromptTextarea.value);
+            localStorage.setItem('customTextPrompt', textPromptTextarea.value);
+            showToast('프롬프트가 저장되었습니다.');
+        } catch (e) {
+            showToast('설정을 저장할 수 없습니다. 브라우저 설정을 확인해주세요.');
+        }
+    }
+    
+    function resetPrompts() {
+        if (confirm('모든 프롬프트를 기본값으로 되돌리시겠습니까?')) {
+            localStorage.removeItem('customImagePrompt');
+            localStorage.removeItem('customTextPrompt');
+            populatePromptTextareas();
+            showToast('프롬프트가 기본값으로 복원되었습니다.');
+        }
+    }
+    
+    function handleGenerateImageDemo() {
+        if (!imageSynthesisPromptTextarea.value.trim()) return showToast('이미지 합성을 위한 프롬프트를 입력해주세요.');
+        generateImageBtn.disabled = true;
+        showToast('멋진 이미지를 만들고 있어요...', 3000);
+        setTimeout(() => {
+            showToast('이미지 생성이 완료되었습니다! (데모)');
+            generateImageBtn.disabled = false;
+        }, 4000);
+    }
+
+    function handleGenerateVideoDemo() {
+        if (!videoGenerationPromptTextarea.value.trim()) return showToast('영상 제작을 위한 프롬프트를 입력해주세요.');
+        generateVideoBtn.disabled = true;
+        showToast('AI가 영상을 제작 중입니다 (약 10초 소요)...', 8000);
+        setTimeout(() => {
+            showToast('영상이 완성되었습니다! (데모)');
+            generateVideoBtn.disabled = false;
+        }, 9000);
+    }
+
+
     // --- Event Listeners ---
-    if (saveApiKeyBtn) {
-        saveApiKeyBtn.addEventListener('click', () => {
-            const apiKey = apiKeyInput.value.trim();
-            if (apiKey) {
-                sessionStorage.setItem('GEMINI_API_KEY', apiKey);
-                gemini.init(apiKey);
-                apiKeyModal.classList.add('hidden');
-                showToast("API 키가 저장되었습니다.");
-            } else {
-                showToast("API 키를 입력해주세요.");
-            }
-        });
-    }
-
-    if (cameraStartOverlay) cameraStartOverlay.addEventListener('click', handleStartCameraClick);
-    if (shootBtn) shootBtn.addEventListener('click', capturePhoto);
-    if (uploadBtn) uploadBtn.addEventListener('click', () => uploadInput.click());
-    if (micBtn) micBtn.addEventListener('click', handleMicButtonClick);
-    if (archiveBtn) archiveBtn.addEventListener('click', showArchivePage);
-    if (uploadInput) uploadInput.addEventListener('change', handleFileSelect);
+    startCameraFromFeaturesBtn?.addEventListener('click', handleStartFeaturesClick);
+    shootBtn?.addEventListener('click', capturePhoto);
+    uploadBtn?.addEventListener('click', () => uploadInput.click());
+    micBtn?.addEventListener('click', handleMicButtonClick);
+    archiveBtn?.addEventListener('click', showArchivePage);
+    uploadInput?.addEventListener('change', handleFileSelect);
     
-    if (backBtn) backBtn.addEventListener('click', showMainPage);
-    if (archiveBackBtn) archiveBackBtn.addEventListener('click', showMainPage);
+    backBtn?.addEventListener('click', () => cameFromArchive ? showArchivePage() : showMainPage());
+    archiveBackBtn?.addEventListener('click', showMainPage);
+    settingsBackBtn?.addEventListener('click', showArchivePage);
     
-    if (audioBtn) audioBtn.addEventListener('click', handleAudioButtonClick);
-    if (saveBtn) saveBtn.addEventListener('click', handleSaveClick);
-    if (textToggleBtn) textToggleBtn.addEventListener('click', () => {
-        const isHidden = textOverlay.classList.toggle('hidden');
-        textToggleBtn.setAttribute('aria-label', isHidden ? '해설 보기' : '해설 숨기기');
-    });
+    audioBtn?.addEventListener('click', onAudioBtnClick);
+    saveBtn?.addEventListener('click', handleSaveClick);
+    textToggleBtn?.addEventListener('click', () => textOverlay.classList.toggle('hidden'));
 
-    if (selectArchiveBtn) selectArchiveBtn.addEventListener('click', () => toggleSelectionMode(true));
-    if (cancelSelectionBtn) cancelSelectionBtn.addEventListener('click', () => toggleSelectionMode(false));
-    if (deleteSelectedBtn) deleteSelectedBtn.addEventListener('click', handleDeleteSelected);
+    archiveSelectBtn?.addEventListener('click', () => toggleSelectionMode(true));
+    archiveShareBtn?.addEventListener('click', handleCreateGuidebookClick);
+    archiveSettingsBtn?.addEventListener('click', showSettingsPage);
+
+    cancelSelectionBtn?.addEventListener('click', () => toggleSelectionMode(false));
+    deleteSelectedBtn?.addEventListener('click', handleDeleteSelected);
     
-    if (archiveGrid) {
-        archiveGrid.addEventListener('click', handleArchiveGridClick);
-        archiveGrid.addEventListener('keydown', handleArchiveGridKeydown);
-    }
+    archiveGrid?.addEventListener('click', handleArchiveGridClick);
+    archiveGrid?.addEventListener('keydown', handleArchiveGridKeydown);
+    
+    authForm?.addEventListener('submit', handleAuth);
+    savePromptsBtn?.addEventListener('click', savePrompts);
+    resetPromptsBtn?.addEventListener('click', resetPrompts);
+    generateImageBtn?.addEventListener('click', handleGenerateImageDemo);
+    generateVideoBtn?.addEventListener('click', handleGenerateVideoDemo);
 
-    // Start the app
     initializeApp();
 
-    // Register Service Worker for PWA
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-            navigator.serviceWorker.register('/service-worker.js').then(registration => {
-                console.log('SW registered: ', registration);
-            }).catch(registrationError => {
-                console.log('SW registration failed: ', registrationError);
-            });
+            navigator.serviceWorker.register('/service-worker.js')
+              .then(reg => console.log('SW registered: ', reg))
+              .catch(err => console.log('SW registration failed: ', err));
         });
     }
 });

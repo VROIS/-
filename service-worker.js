@@ -6,8 +6,7 @@ const urlsToCache = [
   '/index.html',
   '/index.js',
   // 캐시할 다른 에셋(CSS, 이미지 등)을 추가합니다.
-  'https://cdn.tailwindcss.com',
-  'https://hangeul.pstatic.net/nanumsquare_ac/nanumsquare_ac.css'
+  'https://hangeul.pstatic.net/maruburi/maruburi.css'
 ];
 
 self.addEventListener('install', event => {
@@ -37,7 +36,7 @@ self.addEventListener('fetch', event => {
         return fetch(fetchRequest).then(
           response => {
             // 유효한 응답을 받았는지 확인합니다.
-            if(!response || response.status !== 200 || response.type !== 'basic') {
+            if(!response || response.status !== 200) { // Removed 'basic' type check to allow caching opaque responses if needed, but safer to just avoid caching cross-origin resources without CORS.
               return response;
             }
 

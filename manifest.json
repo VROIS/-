@@ -1,0 +1,9 @@
+{
+  "short_name": "손안에 가이드",
+  "name": "손안에 가이드",
+  "description": "나만의 여행 가이드. 사진을 찍거나 음성으로 질문하면 무엇이든 친절하게 설명해드려요.",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "theme_color": "#FFFEFA",
+  "background_color": "#4285F4"
+}

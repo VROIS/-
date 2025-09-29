@@ -4,11 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>손안에 가이드</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%234285F4'><path d='M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z'/></svg>">
     <meta name="theme-color" content="#FFFEFA"/>
     <link rel="manifest" href="manifest.json">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://hangeul.pstatic.net">
     <link rel="stylesheet" href="https://hangeul.pstatic.net/maruburi/maruburi.css">
+    <!-- 'Pretendard' 폰트 추가 -->
+    <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
     <style>
         :root {
             --gemini-blue: #4285F4;
@@ -21,6 +24,55 @@
             background-color: #FFFEFA;
             font-family: 'MaruBuri', sans-serif;
         }
+        
+        /* --- New Landing Page Styles (Surgically Transplanted) --- */
+        #curtain-layer {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 9999;
+            pointer-events: none;
+        }
+        .curtain {
+            position: absolute;
+            top: 0;
+            width: 50.5%; /* Overlap to prevent gap */
+            height: 100%;
+            background-color: #4285F4; /* Gemini Blue */
+            transition: transform 1.0s cubic-bezier(0.86, 0, 0.07, 1);
+        }
+        #curtain-left { left: 0; }
+        #curtain-right { right: 0; }
+        
+        #curtain-left.open { transform: translateX(-100%); }
+        #curtain-right.open { transform: translateX(100%); }
+
+        .splash-logo {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 100%;
+            padding: 0 1rem;
+            box-sizing: border-box;
+            text-align: center;
+            transform: translate(-50%, -50%);
+            z-index: 10000;
+            font-family: 'Pretendard', sans-serif;
+            font-weight: 800;
+            font-size: 3rem;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+            transition: opacity 0.5s ease-out;
+            opacity: 0;
+        }
+        .splash-logo.visible {
+            opacity: 1;
+        }
+        .splash-logo .logo-dot {
+            color: #FBBF24; /* Yellow dot color from example */
+        }
+
         .full-screen-bg { 
             position: fixed; 
             top: 0; 
@@ -40,7 +92,7 @@
             display: flex; 
             flex-direction: column; 
             opacity: 0;
-            transition: opacity 0.3s ease-in-out;
+            transition: opacity 0.15s ease-out;
             visibility: hidden;
         }
         .ui-layer.visible {
@@ -75,13 +127,6 @@
             align-items: center; 
             padding: 0 1rem;
         }
-        .back-button { 
-            position: absolute; 
-            top: 50%;
-            left: 1rem;
-            transform: translateY(-50%);
-            z-index: 40; 
-        }
         .loader-container { 
             height: 100%; 
             display: flex; 
@@ -109,6 +154,7 @@
         }
         .interactive-btn {
             transition: transform 0.1s ease, background-color 0.2s ease;
+            position: relative; /* For spinner positioning */
         }
         .interactive-btn:active { 
             transform: scale(0.95); 
@@ -116,6 +162,7 @@
         .interactive-btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
+            transform: scale(1) !important;
         }
         .hidden { 
             display: none !important; 
@@ -154,12 +201,20 @@
             -webkit-box-decoration-break: clone;
         }
         .mic-listening {
-            animation: pulse 1.5s infinite;
+            animation: pulse 1.5s infinite ease-in-out;
         }
         @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(66, 133, 244, 0.7); }
-            70% { box-shadow: 0 0 0 12px rgba(66, 133, 244, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(66, 133, 244, 0); }
+            0% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(66, 133, 244, 0.7);
+            }
+            50% {
+                transform: scale(1.05);
+            }
+            100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 20px rgba(66, 133, 244, 0);
+            }
         }
         #archiveGrid {
             display: grid;
@@ -272,7 +327,6 @@
             color: #4A4A4A; /* Dark Grey-Brown */
             text-shadow: none;
         }
-        #detailPage.bg-friendly .back-button,
         #detailPage.bg-friendly #detailFooter button {
              color: var(--gemini-blue);
         }
@@ -296,31 +350,159 @@
             border: 4px solid rgba(66, 133, 244, 0.2); 
             border-top-color: var(--gemini-blue);
         }
+        /* 기능 안내 페이지 스타일 */
+        #featuresPage .feature-card-p {
+            min-height: 80px;
+        }
+        #featuresPage .cta-button {
+            background-color: #4285F4;
+        }
+        #featuresPage .cta-button:hover {
+            background-color: #3367D6;
+        }
+        /* 공유 모달 스타일 */
+        .share-modal-social-icon {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            font-size: 0.75rem;
+            color: #4b5563;
+        }
+         .share-modal-social-icon img {
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
+            margin-bottom: 0.5rem;
+            object-fit: cover;
+        }
+
     </style>
-<script type="importmap">
-{
-  "imports": {
-    "@google/genai": "https://esm.sh/@google/genai@^0.14.0"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
 </head>
 <body style="background-color: #FFFEFA;">
+    <!-- New Landing Page (Surgically Transplanted) -->
+    <div id="curtain-layer">
+        <div id="curtain-left" class="curtain"></div>
+        <div id="curtain-right" class="curtain"></div>
+        <div class="splash-logo">
+             <span class="logo-dot">손</span>안에 가이드
+        </div>
+    </div>
+    
     <video id="camera-feed" class="full-screen-bg" autoplay playsinline muted></video>
     <canvas id="capture-canvas" class="hidden"></canvas>
     <input type="file" id="upload-input" class="hidden" accept="image/*">
     <div id="toastContainer"></div>
     
-    <!-- API Key Modal -->
-    <div id="apiKeyModal" class="absolute inset-0 z-50 bg-gray-900/80 backdrop-blur-sm flex items-center justify-center p-4 hidden">
-        <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md text-center">
-            <h2 class="text-2xl font-bold mb-3 text-gray-800">API 키가 필요합니다</h2>
-            <p class="text-gray-600 mb-6">Google AI Studio에서 Gemini API 키를 발급받아 아래에 입력해주세요. 키는 현재 브라우저 세션에만 저장됩니다.</p>
-            <input type="password" id="apiKeyInput" class="w-full px-4 py-2 border border-gray-300 rounded-md mb-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="Gemini API 키를 여기에 붙여넣으세요">
-            <button id="saveApiKeyBtn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-md hover:bg-blue-700 transition-colors interactive-btn">시작하기</button>
-            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="mt-4 inline-block text-sm text-blue-600 hover:underline">Google AI Studio에서 키 받기 &rarr;</a>
+    <!-- Share Modal (Prototype) -->
+    <div id="shareModal" class="absolute inset-0 z-50 bg-gray-900/60 backdrop-blur-sm flex items-end justify-center hidden">
+        <div id="shareModalContent" class="bg-white rounded-t-2xl shadow-xl w-full max-w-md transition-transform transform translate-y-full">
+            <div class="p-4 border-b border-gray-200 flex justify-between items-center">
+                <h2 class="text-lg font-bold text-gray-800">공유하기</h2>
+                <button id="closeShareModalBtn" class="p-2 text-gray-500 hover:text-gray-800">&times;</button>
+            </div>
+            <div class="p-6">
+                <p class="text-center text-gray-600 mb-6">선택한 항목을 공유할 앱을 선택하세요.<br><small>(v2.0에서 정식 지원 예정)</small></p>
+                <div class="grid grid-cols-4 gap-4">
+                    <a href="#" class="share-modal-social-icon">
+                        <img src="https://www.kakaocorp.com/page/favicon.ico" alt="카카오톡">
+                        <span>카카오톡</span>
+                    </a>
+                    <a href="#" class="share-modal-social-icon">
+                        <img src="https://static.cdninstagram.com/rsrc.php/v3/yI/r/VsNE-OHk_8a.png" alt="인스타그램">
+                        <span>인스타그램</span>
+                    </a>
+                    <a href="#" class="share-modal-social-icon">
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" alt="WhatsApp">
+                        <span>WhatsApp</span>
+                    </a>
+                     <a href="#" class="share-modal-social-icon">
+                        <img src="https://sf-tb-sg.ibytedtos.com/obj/eden-sg/uhtyfhohheehvoml/tiktok/web/image/tiktok-logo-dark.png" alt="TikTok">
+                        <span>TikTok</span>
+                    </a>
+                </div>
+            </div>
         </div>
+    </div>
+
+    <!-- Features Page -->
+    <div id="featuresPage" class="ui-layer bg-gray-50 text-gray-800">
+        <div class="content-safe-area">
+            <!-- Features Section -->
+            <section class="py-6 md:py-10 bg-white">
+                <div class="container mx-auto px-6 text-center">
+                    <div class="grid md:grid-cols-3 gap-6">
+                        <!-- Feature 1: Image Recognition -->
+                        <div class="bg-gray-50 p-6 rounded-xl shadow-lg transform hover:-translate-y-2 transition duration-300">
+                            <div class="bg-blue-100 text-blue-600 rounded-full w-14 h-14 flex items-center justify-center mx-auto mb-4">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                            </div>
+                            <h3 class="text-xl font-bold mb-2">사진 한 장이면 충분해요</h3>
+                            <p class="text-gray-600 feature-card-p text-sm">궁금한 것을 바로 찍거나 갤러리에서 선택해보세요. 10초 내외로 풍부한 음성 해설과 텍스트가 바로 생성됩니다.</p>
+                        </div>
+                        <!-- Feature 2: Voice Question -->
+                        <div class="bg-gray-50 p-6 rounded-xl shadow-lg transform hover:-translate-y-2 transition duration-300">
+                            <div class="bg-blue-100 text-blue-600 rounded-full w-14 h-14 flex items-center justify-center mx-auto mb-4">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+                            </div>
+                            <h3 class="text-xl font-bold mb-2">말하기만 하세요</h3>
+                            <p class="text-gray-600 feature-card-p text-sm">목소리로 물어보세요. 복잡한 검색은 이제 잊으세요. '손안에 가이드'가 알아서 핵심만 쏙쏙 뽑아 전달해 드립니다.</p>
+                        </div>
+                        <!-- Feature 3: Guidebook -->
+                        <div class="bg-gray-50 p-6 rounded-xl shadow-lg transform hover:-translate-y-2 transition duration-300">
+                            <div class="bg-blue-100 text-blue-600 rounded-full w-14 h-14 flex items-center justify-center mx-auto mb-4">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                                </svg>
+                            </div>
+                            <h3 class="text-xl font-bold mb-2">여행 전부터 끝까지!</h3>
+                            <p class="text-gray-600 feature-card-p text-sm">가고 싶은 곳을 30개까지 저장하고, 오프라인에서도 들으며 나만의 가이드북을 만드세요. 여행 후에는 감동을 다시 느껴보세요.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- How it works Section -->
+            <section class="py-6 md:py-10 bg-gray-100">
+                <div class="container mx-auto px-6">
+                    <h2 class="text-2xl md:text-3xl font-bold text-center mb-6">자, 이제 시작해볼까요?</h2>
+                    <div class="flex flex-col md:flex-row justify-center items-center md:space-x-6 lg:space-x-12 space-y-6 md:space-y-0">
+                        <!-- Step 1 -->
+                        <div class="text-center max-w-xs">
+                            <div style="background-color: #4285F4;" class="text-white rounded-full w-14 h-14 flex items-center justify-center text-xl font-bold mx-auto">1</div>
+                            <h3 class="text-lg font-bold mt-3 mb-1">권한 승인</h3>
+                            <p class="text-gray-600 text-sm">처음 실행 시 카메라와 마이크 사용을 승인해주세요.</p>
+                        </div>
+                        <div class="text-blue-300 transform rotate-90 md:rotate-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
+                        </div>
+                        <!-- Step 2 -->
+                        <div class="text-center max-w-xs">
+                            <div style="background-color: #4285F4;" class="text-white rounded-full w-14 h-14 flex items-center justify-center text-xl font-bold mx-auto">2</div>
+                            <h3 class="text-lg font-bold mt-3 mb-1">찍거나 올리거나 말하기</h3>
+                            <p class="text-gray-600 text-sm">궁금한 것을 사진으로 찍거나 갤러리에서 올리거나, 목소리로 물어보세요.</p>
+                        </div>
+                         <div class="text-blue-300 transform rotate-90 md:rotate-0">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
+                        </div>
+                        <!-- Step 3 -->
+                        <div class="text-center max-w-xs">
+                            <div style="background-color: #4285F4;" class="text-white rounded-full w-14 h-14 flex items-center justify-center text-xl font-bold mx-auto">3</div>
+                            <h3 class="text-lg font-bold mt-3 mb-1">맞춤 해설 즐기기</h3>
+                            <p class="text-gray-600 text-sm">당신을 위한 생생한 설명을 바로 즐기세요.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+        <footer class="footer-safe-area bg-white/95 backdrop-blur-sm border-t border-gray-200/80" style="height: auto;">
+            <div class="text-center w-full px-6 py-4">
+                 <p class="text-sm text-gray-700 max-w-3xl mx-auto mb-3">여러분의 눈과 귀가 되어줄 <strong>'손안에 가이드'</strong>가 지금 바로 당신을 기다립니다.</p>
+                 <button id="startCameraFromFeaturesBtn" class="cta-button text-white font-bold py-3 px-10 rounded-full transition duration-300 inline-block text-lg shadow-lg transform hover:scale-105">
+                    바로 시작하기
+                </button>
+            </div>
+        </footer>
     </div>
 
     <!-- Main Page -->
@@ -338,16 +520,25 @@
         <div class="flex-1"></div>
         <footer class="footer-safe-area">
             <button id="shootBtn" aria-label="사진 촬영" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl" disabled>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0-6c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2 2z"/><path d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h4.05l1.83-2h4.24l1.83 2H20v12z"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
             </button>
             <button id="micBtn" aria-label="음성으로 질문하기" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl" disabled>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72h-1.7z"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                </svg>
             </button>
             <button id="uploadBtn" aria-label="갤러리에서 업로드" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl" disabled>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M21 3H3C2 3 1 4 1 5v14c0 1.1.9 2 2 2h18c1 0 2-1 2-2V5c0-1-1-2-2-2zm-1 16H4V6h16v13zM8 11l3 4h5l-4-5-3 4z"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                </svg>
             </button>
             <button id="archiveBtn" aria-label="보관함" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M19 2H5c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 14H6v-2h8v2zm2-4H6v-2h10v2zm0-4H6V6h10v2z"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" >
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+                </svg>
             </button>
         </footer>
     </div>
@@ -356,8 +547,10 @@
     <div id="detailPage" class="ui-layer">
         <img id="resultImage" src="" alt="분석된 이미지" class="full-screen-bg">
         <header class="header-safe-area">
-            <button id="backBtn" class="back-button w-12 h-12 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl" aria-label="뒤로가기">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
+            <button id="backBtn" class="w-12 h-12 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl absolute top-1/2 left-4 -translate-y-1/2" aria-label="뒤로가기">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+                </svg>
             </button>
             <div id="loadingHeader" class="text-center">
                 <h1 class="text-xl font-bold readable-on-image"></h1>
@@ -374,10 +567,14 @@
         </div>
         <footer id="detailFooter" class="footer-safe-area hidden" style="background: transparent;">
              <button id="audioBtn" aria-label="오디오 재생" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 24 24" fill="currentColor">
+                    <path fill-rule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.648c1.295.748 1.295 2.538 0 3.286L7.279 20.99c-1.25.717-2.779-.217-2.779-1.643V5.653z" clip-rule="evenodd" />
+                </svg>
             </button>
             <button id="textToggleBtn" aria-label="해설 읽기" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
             </button>
             <button id="saveBtn" aria-label="보관함에 저장" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
@@ -389,19 +586,24 @@
     <div id="archivePage" class="ui-layer bg-white">
         <!-- Default Header -->
         <header id="archiveHeader" class="header-safe-area">
-            <button id="archiveBackBtn" class="back-button w-12 h-12 flex items-center justify-center rounded-full bg-gray-100 text-gray-800 interactive-btn" aria-label="뒤로가기">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
+             <button id="archiveBackBtn" class="w-12 h-12 flex items-center justify-center rounded-full bg-gray-100 text-gray-800 interactive-btn absolute top-1/2 left-4 -translate-y-1/2" aria-label="뒤로가기">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+                </svg>
             </button>
-            <h1 class="text-xl font-bold text-gray-800">보관함</h1>
-            <button id="selectArchiveBtn" class="absolute top-1/2 right-4 -translate-y-1/2 text-blue-600 font-semibold text-lg interactive-btn px-3 py-1 rounded-md hidden">선택</button>
+            <div class="text-gray-800">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"></path>
+                </svg>
+            </div>
         </header>
         <!-- Selection Mode Header -->
         <header id="selectionHeader" class="header-safe-area hidden bg-gray-50 border-b border-gray-200">
             <button id="cancelSelectionBtn" class="absolute top-1/2 left-4 -translate-y-1/2 text-blue-600 font-semibold text-lg interactive-btn px-3 py-1 rounded-md">취소</button>
             <h1 id="selectionCount" class="text-xl font-bold text-gray-800">0개 선택</h1>
-            <button id="deleteSelectedBtn" class="absolute top-1/2 right-4 -translate-y-1/2 text-gemini-blue disabled:text-gray-400 hover:text-red-500 interactive-btn p-2" disabled aria-label="선택 항목 삭제">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" stroke="currentColor" fill="none" viewBox="0 0 24 24" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+            <button id="deleteSelectedBtn" class="absolute top-1/2 right-4 -translate-y-1/2 text-red-500 disabled:text-gray-400 hover:text-red-600 interactive-btn p-2" disabled aria-label="선택 항목 삭제">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.124-2.033-2.124H8.033c-1.12 0-2.033.944-2.033 2.124v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                 </svg>
             </button>
         </header>
@@ -409,9 +611,127 @@
             <div id="archiveGrid"></div>
             <p id="emptyArchiveMessage" class="text-slate-500 text-center mt-10 hidden">저장된 항목이 없습니다.</p>
         </div>
-        <footer class="footer-safe-area" style="height: 20px;"></footer>
+        <footer id="archiveFooter" class="footer-safe-area bg-white/95 backdrop-blur-sm border-t border-gray-200/80">
+             <button id="archiveSelectBtn" aria-label="항목 선택" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </button>
+             <button id="archiveShareBtn" aria-label="선택 항목 공유" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl" disabled>
+                 <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.195.025.39.05.588.08m-1.186 0a2.25 2.25 0 110 2.186m0-2.186l-1.186.151m1.186 0l.588.08m0 0a2.25 2.25 0 100 2.186m0-2.186l-.588.08m.588 0l-1.186.151m2.372 0a2.25 2.25 0 100 2.186m0-2.186c-.195.025-.39.05-.588.08m1.186 0a2.25 2.25 0 110 2.186m0-2.186l1.186.151m-1.186 0l-.588.08m0 0a2.25 2.25 0 100 2.186m0-2.186l.588.08m-.588 0l1.186.151m-2.372 0h.008v.008h-.008v-.008z" />
+                </svg>
+            </button>
+             <button id="archiveSettingsBtn" aria-label="설정" class="w-16 h-16 flex items-center justify-center rounded-full bg-black/60 backdrop-blur-md text-gemini-blue interactive-btn shadow-2xl">
+                 <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+            </button>
+        </footer>
     </div>
 
+    <!-- Settings Page (Prototype) -->
+    <div id="settingsPage" class="ui-layer bg-gray-100">
+        <header class="header-safe-area border-b bg-white">
+            <button id="settingsBackBtn" class="w-12 h-12 flex items-center justify-center rounded-full text-gray-800 interactive-btn absolute top-1/2 left-4 -translate-y-1/2" aria-label="뒤로가기">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" />
+                </svg>
+            </button>
+            <h1 class="text-xl font-bold text-gray-800">설정</h1>
+        </header>
+        <div class="content-safe-area p-4 md:p-6 space-y-8">
+             <!-- Authentication Section -->
+            <div id="authSection" class="bg-white p-6 rounded-lg shadow-sm">
+                <h2 class="text-lg font-semibold text-gray-800 mb-4">관리자 접근</h2>
+                <form id="authForm" class="space-y-4">
+                    <p class="text-sm text-gray-600">프롬프트 설정을 변경하려면 인증번호를 입력하세요.</p>
+                    <div>
+                        <input type="password" id="authPassword" class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="인증번호">
+                    </div>
+                    <button type="submit" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-md hover:bg-blue-700 transition duration-300">
+                        인증하기
+                    </button>
+                </form>
+            </div>
+
+            <!-- Prompt Settings Section (Hidden by default) -->
+            <div id="promptSettingsSection" class="hidden space-y-6">
+                <div class="bg-white p-6 rounded-lg shadow-sm">
+                    <h2 class="text-lg font-semibold text-gray-800 mb-4">이미지 설명 프롬프트</h2>
+                    <textarea id="imagePromptTextarea" rows="6" class="w-full p-3 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"></textarea>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-sm">
+                    <h2 class="text-lg font-semibold text-gray-800 mb-4">텍스트 질문 프롬프트</h2>
+                    <textarea id="textPromptTextarea" rows="6" class="w-full p-3 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"></textarea>
+                </div>
+                
+                <!-- v1.8: Advanced AI Features (Prototype) -->
+                <div class="bg-white p-6 rounded-lg shadow-sm">
+                    <h2 class="text-lg font-semibold text-gray-800 mb-2">이미지 합성 (베타)</h2>
+                    <p class="text-sm text-gray-500 mb-4">보관함의 배경 사진과 인물 사진을 합성합니다. (v2.0 지원 예정)</p>
+                    <textarea id="imageSynthesisPromptTextarea" rows="4" placeholder="예시: 이 사진을 배경으로 CF의 주인공 같은 사진을 만들어 주세요." class="w-full p-3 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"></textarea>
+                    <button id="generateImageBtn" class="mt-4 w-full bg-green-600 text-white font-bold py-2 px-4 rounded-md hover:bg-green-700 transition duration-300">
+                        이미지 만들기 (데모)
+                    </button>
+                </div>
+                
+                <div class="bg-white p-6 rounded-lg shadow-sm">
+                    <h2 class="text-lg font-semibold text-gray-800 mb-2">AI 영상 제작 (베타)</h2>
+                    <p class="text-sm text-gray-500 mb-4">보관함의 사진과 해설로 1분 내외의 영상을 만듭니다. (v2.0 지원 예정)</p>
+                    <textarea id="videoGenerationPromptTextarea" rows="4" placeholder="예시: 가이드가 작품 앞에서 텍스트를 나레이션하며 설명하는 영상을 만들어줘." class="w-full p-3 text-sm border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono"></textarea>
+                     <button id="generateVideoBtn" class="mt-4 w-full bg-purple-600 text-white font-bold py-2 px-4 rounded-md hover:bg-purple-700 transition duration-300">
+                        영상 만들기 (데모)
+                    </button>
+                </div>
+
+
+                <div class="mt-6 flex justify-end space-x-4">
+                    <button id="resetPromptsBtn" class="bg-gray-200 text-gray-700 font-bold py-2 px-6 rounded-md hover:bg-gray-300 transition duration-300">기본값 복원</button>
+                    <button id="savePromptsBtn" class="bg-blue-600 text-white font-bold py-2 px-6 rounded-md hover:bg-blue-700 transition duration-300">저장하기</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
 <script type="module" src="./index.js"></script>
+
+<!-- Landing Page Animation Script (Surgically Transplanted) -->
+<script>
+    window.addEventListener('load', () => {
+        const logo = document.querySelector('.splash-logo');
+        const curtainLeft = document.getElementById('curtain-left');
+        const curtainRight = document.getElementById('curtain-right');
+        const curtainLayer = document.getElementById('curtain-layer');
+        const featuresPage = document.getElementById('featuresPage'); // Need a reference to the features page
+        if (!logo || !curtainLeft || !curtainRight || !curtainLayer || !featuresPage) return;
+
+        // --- Animation Sequence ---
+        
+        // 1. Logo appears
+        setTimeout(() => {
+            logo.classList.add('visible');
+        }, 100);
+
+        // 2. Logo fades out and we make the features page visible *behind* the curtain
+        setTimeout(() => {
+            logo.classList.remove('visible');
+            featuresPage.classList.add('visible'); // Make it visible but it's still covered
+        }, 1500); 
+
+        // 3. Curtains open
+        setTimeout(() => {
+            curtainLeft.classList.add('open');
+            curtainRight.classList.add('open');
+        }, 2000);
+
+        // 4. Remove the curtain layer after animation is complete
+        setTimeout(() => {
+            curtainLayer.style.display = 'none';
+        }, 3000); 
+    });
+</script>
 </body>
 </html>

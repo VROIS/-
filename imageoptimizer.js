@@ -1,4 +1,4 @@
-// utils/imageOptimizer.js
+// imageoptimizer.js
 
 /**
  * 데이터 URL로부터 이미지를 리사이즈하여 가로/세로 비율을 유지합니다.
